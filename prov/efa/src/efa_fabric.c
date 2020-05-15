@@ -41,6 +41,8 @@
 #include <inttypes.h>
 
 #include <infiniband/efadv.h>
+#include <cuda.h>
+#include <cuda_runtime.h>
 
 #include <rdma/fabric.h>
 #include <rdma/fi_cm.h>
@@ -80,6 +82,8 @@
 
 #define EFA_DEF_MR_CACHE_ENABLE 1
 
+#define CUDA_HMEM_CHECK_SIZE 1024
+
 int efa_mr_cache_enable		= EFA_DEF_MR_CACHE_ENABLE;
 size_t efa_mr_max_cached_count;
 size_t efa_mr_max_cached_size;
@@ -101,7 +105,7 @@ const struct fi_domain_attr efa_domain_attr = {
 	.data_progress		= FI_PROGRESS_AUTO,
 	.resource_mgmt		= FI_RM_DISABLED,
 #ifdef HAVE_LIBCUDA
-	.mr_mode		= OFI_MR_BASIC_MAP | FI_MR_LOCAL | FI_MR_BASIC | FI_MR_HMEM,
+	.mr_mode		= OFI_MR_BASIC_MAP | FI_MR_LOCAL | FI_MR_BASIC,
 #else
 	.mr_mode		= OFI_MR_BASIC_MAP | FI_MR_LOCAL | FI_MR_BASIC,
 #endif
@@ -469,6 +473,51 @@ err_free_nic:
 	return ret;
 }
 
+#ifdef HAVE_LIBCUDA
+static bool efa_gdr_supported(struct efa_context *ctx)
+{
+	struct ibv_pd *pd;
+	struct ibv_mr *mr;
+	cudaError_t cuda_err;
+	void *cuda_buf;
+	int ret = 0;
+
+        cuda_err = cudaMalloc(&cuda_buf, CUDA_HMEM_CHECK_SIZE);
+        if (cuda_err != cudaSuccess)
+		goto out;
+
+	pd = ibv_alloc_pd(ctx->ibv_ctx);
+	if (!pd)
+		goto err_free_cudabuf;
+
+	mr = ibv_reg_mr(pd, cuda_buf, CUDA_HMEM_CHECK_SIZE, IBV_ACCESS_REMOTE_READ);
+	if (!mr) {
+                EFA_DBG(FI_LOG_DOMAIN, "Can not register CUDA memory (%s)!\n", strerror(errno));
+		goto err_free_pd;
+	} else {
+		/*
+		 * Enable FI_HMEM only if both CUDA registrations are possible
+		 * and if the device can support RDMA operations.
+		 */
+		if (ctx->max_rdma_size > 0)
+			ret = 1;;
+	}
+
+	ibv_dereg_mr(mr);
+err_free_pd:
+	ibv_dealloc_pd(pd);
+err_free_cudabuf:
+	cudaFree(cuda_buf);
+out:
+	return ret;
+}
+#else
+static bool efa_gdr_supported(struct efa_context *ctx)
+{
+	return 0;
+}
+#endif
+
 static int efa_get_device_attrs(struct efa_context *ctx, struct fi_info *info)
 {
 	struct efadv_device_attr efadv_attr;
@@ -514,6 +563,7 @@ static int efa_get_device_attrs(struct efa_context *ctx, struct fi_info *info)
 	info->domain_attr->max_ep_rx_ctx	= 1;
 	info->domain_attr->resource_mgmt	= FI_RM_DISABLED;
 	info->domain_attr->mr_cnt		= base_attr->max_mr;
+	info->domain_attr->mr_mode		|= efa_gdr_supported(ctx) ? FI_MR_HMEM : 0;
 
 	EFA_DBG(FI_LOG_DOMAIN, "Domain attribute :\n"
 				"\t info->domain_attr->cq_cnt		= %zu\n"
