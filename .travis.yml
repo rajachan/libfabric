@@ -113,7 +113,7 @@ install:
     - ./configure $LIBFABRIC_CONFIGURE_ARGS --enable-debug
     - make -j2 $MAKE_FLAGS
     # Test regular build
-    - CFLAGS="-fsanitize=address" ./configure $LIBFABRIC_CONFIGURE_ARGS
+    - CFLAGS="-fsanitize=address -fsanitize=leak -fsanitize=bounds-strict -fstack-check" ./configure $LIBFABRIC_CONFIGURE_ARGS
     - make -j2 $MAKE_FLAGS
     - make install
     - make test
