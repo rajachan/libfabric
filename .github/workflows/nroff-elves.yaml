@@ -15,7 +15,7 @@ jobs:
               output: ${{ toJSON(github.event) }}
             run: |
               echo JMS this is github.event
-              echo $output
+              echo "$output"
 
           - name: Check out the git repo
             uses: actions/checkout@v2
