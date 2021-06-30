@@ -1,0 +1,35 @@
+name: Coverity Scan
+on:
+  push:
+    branches:
+      - main
+  release:
+    types:
+      - created
+jobs:
+  coverity-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install Coverity Tool
+        env:
+          TOKEN: ${{ secrets.COVERITY_SCAN_TOKEN }}
+        run: |
+          wget https://scan.coverity.com/download/linux64 --post-data "token=$TOKEN&project=ofiwg%2Flibfabric" -O coverity_tool.tgz
+          mkdir cov-analysis-linux64
+          tar xzf cov-analysis-linux64.tar.gz --strip 1 -C cov-analysis-linux64
+      - run: ./autogen.sh; ./configure --prefix=$PWD/install
+      - name: Covbuild
+        run: |
+          export PATH=$PWD/cov-analysis-linux64/bin:$PATH
+          cov-build --dir cov-int make
+      - name: Submit results
+        env:
+          TOKEN: ${{ secrets.COVERITY_SCAN_TOKEN }}
+        run: |
+          tar czvf libfabric.tgz cov-int
+          curl --form token=$TOKEN \
+               --form file=@libfabric.tgz \
+               --form version="Version" \
+               --form description="Description" \
+               https://scan.coverity.com/builds?project=ofiwg%2Flibfabric
