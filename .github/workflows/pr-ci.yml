@@ -102,6 +102,12 @@ jobs:
           make -j 2; make install
           $PWD/install/bin/fi_info -l
           $PWD/install/bin/fi_info -c FI_HMEM
+      - name: Upload build logs
+        if: failure()
+        uses: actions/upload-artifact@v2
+        with:
+          name: config.log
+          path: config.log
   macos:
     runs-on: macos-10.15
     steps:
